@@ -1,76 +1,87 @@
-import os
-import requests
-import feedparser
-import json
+import requests, json, os, hashlib
+from bs4 import BeautifulSoup
 
-BOT_TOKEN = os.getenv("BOT_TOKEN")
-CHANNEL_ID = os.getenv("CHANNEL_ID")
-LAST_FILE = "last_mod_obb.json"
+BOT_TOKEN = "YOUR_TELEGRAM_BOT_TOKEN"
+CHANNEL = "@yourchannelusername"
 
-RSS_FEEDS = [
-    "https://apkdone.com/feed/"
+HEADERS = {"User-Agent": "Mozilla/5.0"}
+POSTED_FILE = "posted.json"
+
+# ---------- DUPLICATE ----------
+if os.path.exists(POSTED_FILE):
+    posted = set(json.load(open(POSTED_FILE)))
+else:
+    posted = set()
+
+def is_new(text):
+    h = hashlib.md5(text.encode()).hexdigest()
+    if h in posted:
+        return False
+    posted.add(h)
+    return True
+
+def save():
+    json.dump(list(posted), open(POSTED_FILE, "w"))
+
+# ---------- TELEGRAM ----------
+def send(msg):
+    url = f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage"
+    requests.post(url, data={
+        "chat_id": CHANNEL,
+        "text": msg,
+        "parse_mode": "HTML",
+        "disable_web_page_preview": False
+    })
+
+# ---------- ANDROID GAME SITES (25) ----------
+SITES = [
+    ("https://www.androidauthority.com/gaming", "h2 a"),
+    ("https://www.androidpolice.com/games/", "h3 a"),
+    ("https://www.xda-developers.com/tag/games/", "h3 a"),
+    ("https://www.pocketgamer.com/android/", "h3 a"),
+    ("https://www.gsmarena.com/games.php3", ".news-item h3 a"),
+    ("https://www.droid-life.com/category/games/", "h2 a"),
+    ("https://www.phonearena.com/games", "h3 a"),
+    ("https://www.gamezebo.com/android-games/", "h3 a"),
+    ("https://www.androidcentral.com/gaming", "h2 a"),
+    ("https://www.techradar.com/mobile-gaming", "h3 a"),
+    ("https://www.indiatoday.in/gaming", "h2 a"),
+    ("https://www.hindustantimes.com/gaming", "h3 a"),
+    ("https://www.livemint.com/technology/gaming", "h2 a"),
+    ("https://www.cnet.com/tech/mobile/", "h3 a"),
+    ("https://www.wired.com/tag/games/", "h3 a"),
+    ("https://www.theverge.com/games", "h2 a"),
+    ("https://www.digitaltrends.com/gaming/", "h3 a"),
+    ("https://www.techadvisor.com/gaming/", "h3 a"),
+    ("https://www.tomsguide.com/gaming", "h3 a"),
+    ("https://www.pcgamer.com/mobile-gaming/", "h3 a"),
+    ("https://www.ign.com/mobile", "h3 a"),
+    ("https://www.gamesradar.com/mobile/", "h3 a"),
+    ("https://www.eurogamer.net/mobile", "h3 a"),
+    ("https://www.androidheadlines.com/category/games", "h2 a"),
+    ("https://www.talkandroid.com/category/gaming/", "h2 a"),
 ]
 
-def send_message(text, photo=None):
-    if photo:
-        url = f"https://api.telegram.org/bot{BOT_TOKEN}/sendPhoto"
-        data = {
-            "chat_id": CHANNEL_ID,
-            "photo": photo,
-            "caption": text,
-            "parse_mode": "HTML"
-        }
-    else:
-        url = f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage"
-        data = {
-            "chat_id": CHANNEL_ID,
-            "text": text,
-            "parse_mode": "HTML"
-        }
-    requests.post(url, json=data)
-
-def load_last():
+# ---------- SCRAPE ----------
+for url, selector in SITES:
     try:
-        with open(LAST_FILE, "r") as f:
-            return json.load(f)
+        html = requests.get(url, headers=HEADERS, timeout=10).text
+        soup = BeautifulSoup(html, "html.parser")
+
+        for a in soup.select(selector)[:2]:   # per site limit
+            title = a.text.strip()
+            link = a.get("href")
+
+            if not link:
+                continue
+            if link.startswith("/"):
+                link = url.split("/")[0] + "//" + url.split("/")[2] + link
+
+            key = title + link
+            if is_new(key):
+                msg = f"🎮 <b>{title}</b>\n\n🔗 {link}"
+                send(msg)
     except:
-        return {}
+        pass
 
-def save_last(data):
-    with open(LAST_FILE, "w") as f:
-        json.dump(data, f)
-
-posted = load_last()
-new_posted = posted.copy()
-
-for feed_url in RSS_FEEDS:
-    feed = feedparser.parse(feed_url)
-    if not feed.entries:
-        continue
-
-    game = feed.entries[0]
-    game_id = game.get("id") or game.get("link")
-
-    if game_id in posted:
-        continue
-
-    title = game.title
-    link = game.link.lower()
-    image = game.get("media_content", [{}])[0].get("url")
-
-    # Detect OBB
-    obb = "OBB" if ("obb" in link or "data" in title.lower()) else "No OBB"
-
-    msg = (
-        f"🎮 <b>MOD + OBB GAME</b>\n\n"
-        f"🔥 <b>{title}</b>\n"
-        f"🛠 MOD: Unlimited Money / Premium\n"
-        f"📦 OBB: {obb}\n"
-        f"⬇️ Download: {game.link}\n\n"
-        f"#ModAPK #OBBGame #AndroidGames"
-    )
-
-    send_message(msg, image)
-    new_posted[game_id] = True
-
-save_last(new_posted)
+save()
