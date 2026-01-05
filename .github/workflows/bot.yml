@@ -3,16 +3,24 @@ name: MOD + OBB Game Bot
 on:
   workflow_dispatch:
   schedule:
-    - cron: '*/15 * * * *'
+    - cron: '*/10 * * * *'
 
 jobs:
   run:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+
+      - name: Restore cache
+        uses: actions/cache@v3
+        with:
+          path: last_mod_obb.json
+          key: mod-obb-cache
+
       - uses: actions/setup-python@v4
         with:
           python-version: 3.11
+
       - run: pip install feedparser requests
       - run: python main.py
         env:
